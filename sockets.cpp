@@ -75,8 +75,21 @@ void broadcast (int origin, string text)
 	}
 }
 
+void help (int socketfd)
+{
+	ostringstream oss;
+
+	oss << "Bem-vindo ao Quem Quer Ser Milionário" << endl
+	<< "Pode usar umas das seguintes funções:" << endl
+	<< "---------------------------------------------------------" << endl
+	<< "1) Help		\\help" << endl;
+
+	string data = oss.str();
+	writeline(socketfd, data);
+}
+
 /* Trata de receber dados de um cliente cujo socketid foi passado como parâmetro */
-void* cliente(void* args)
+void* cliente (void* args)
 {
 	int
 		sockfd = *(int*) args;
@@ -88,8 +101,8 @@ void* cliente(void* args)
 	cout << "Client connected: " << sockfd << endl;
 	while (readline (sockfd, line))
 	{
-		cout << "Socket " << sockfd << " said: " << line << endl;
-		broadcast (sockfd, line);
+		if (line.find ("\\help") == 0)
+			help (socketfd);
 	}
 
 	cout << "Client disconnected: " << sockfd << endl;
@@ -99,7 +112,7 @@ void* cliente(void* args)
 	close (sockfd);
 }
 
-int main(int argc, char *argv[])
+int main (int argc, char *argv[])
 {
 	// Estruturas de dados
 	int

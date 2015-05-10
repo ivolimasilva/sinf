@@ -129,29 +129,20 @@ void closeDB ()
 
 /* FUNÇOES DO JOGO */
 
-void search ()
-{
-	PGresult* res = executeSQL ("SELECT nome FROM utilizador");
-	
-	for (int row = 0; row < PQntuples (res); row++)
-		cout << PQgetvalue (res, row, 0) << endl;
-}
-
 void cmd_help (int socketfd)
 {
 	ostringstream
 		oss;
+	string
+		data = oss.str();
 
-	oss << "Bem-vindo ao Quem Quer Ser Milionário" << endl
-	<< "Pode usar umas das seguintes funções:" << endl
+	oss << "Pode usar umas das seguintes funções:" << endl
 	<< "-------------------------------------" << endl
 	<< "\\help ..............................." << endl
 	<< "Lista os comandos todos disponíveis ;" << endl << endl
 	<< "\\register <name> <password> ........." << endl
 	<< "Regista um user com name e password ;" << endl << endl;
 
-	string
-		data = oss.str();
 	writeline (socketfd, data);
 }
 
@@ -172,13 +163,8 @@ void cmd_register (int socketfd, string &line)
 		return ;
 	}
 	else
-	{
-		PGresult* res2 = executeSQL("SELECT nome FROM utilizador");
-	
-		for (int row = 0; row < PQntuples(res2); row++)
-			cout << PQgetvalue(res2, row, 0) << endl;
-		
-		PGresult* res = executeSQL ("SELECT * FROM utilizador WHERE nome = '" + user + "'");
+	{		
+		PGresult* res = executeSQL ("SELECT * FROM users WHERE name = '" + user + "'");
 		
 		if (PQntuples (res) > 0) // caso já existe um utilizador com o mesmo username 
 		{
@@ -186,9 +172,7 @@ void cmd_register (int socketfd, string &line)
 		}
 		else // caso não exista este username
 		{
-			// executeSQL ("INSERT INTO utilizadores VALUES ('" + user +"', '" + pass + "', 'false', 'false')"); //não é admin nem está online
-			executeSQL ("INSERT INTO utilizador (nome, pass, rest, estado) VALUES ('" + user +"', '" + pass + "', 'nada', FALSE)");
-			writeline (socketfd, "Utilizador " + user + " criado com pass = " + pass + "!");
+			executeSQL ("INSERT INTO users VALUES ('" + user +"', '" + pass + "', FALSE, FALSE)"); //não é admin nem está online
 		}
 	}
 }
@@ -206,6 +190,16 @@ void* cliente (void* args)
 	clients.insert (socketfd);
 
 	cout << "Client connected: " << socketfd << endl;
+	
+	ostringstream
+		oss;
+	string
+		data = oss.str();
+
+	oss << "Bem vindo ao \"Quem não quer ser miseravelmente pobre?\"" << endl << endl;
+
+	writeline (socketfd, data);
+	
 	while (readline (socketfd, line))
 	{
 		cout << "Socket " << socketfd << " said: " << line << endl;
@@ -239,8 +233,6 @@ int main (int argc, char *argv[])
 
 	cout << "Port: " << port << endl;
 	initDB ();
-	
-	search ();
 
 	// Inicializar o socket
 	// AF_INET:			para indicar que queremos usar IP

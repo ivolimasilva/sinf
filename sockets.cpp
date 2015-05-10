@@ -342,14 +342,14 @@ void cmd_insert (int socketfd, string &line)
 	
 	iss >> comando >> game_id >> question_id;
 	
-	res = executeSQL ("SELECT * FROM questions WHERE id = '" + question_id + "'");
+	res = executeSQL ("SELECT * FROM questions WHERE id = " + question_id + "");
 	if (PQntuples (res) == 0)
 	{
 		writeline (socketfd, "Pergunta nao encontrado.");
 		return ;
 	}
 	
-	res = executeSQL ("SELECT questions FROM games WHERE id = '" + game_id + "'");
+	res = executeSQL ("SELECT questions FROM games WHERE id = " + game_id + "");
 	if (PQntuples (res) == 0)
 	{
 		writeline (socketfd, "Jogo nao encontrado.");
@@ -359,10 +359,88 @@ void cmd_insert (int socketfd, string &line)
 	{
 		question_nr = 1 + atoi (PQgetvalue (res, 0, 0));
 		oss1 << "INSERT INTO gamequestions (game_id, question_nr, question_id) VALUES (" << game_id << ", " << question_nr << ", " << question_id << ")";
-		executeSQL (oss1.str());
+		executeSQL (oss1.str ());
 		
 		oss2 << "UPDATE games SET questions = " << question_nr << " WHERE id = " << game_id;
-		executeSQL (oss2.str());
+		executeSQL (oss2.str ());
+	}
+}
+
+void cmd_play (int socketfd, string &line)
+{
+	string
+		comando,
+		game_id,
+		question_id,
+		question,
+		answer,
+		wrong1,
+		wrong2,
+		wrong3,
+		line2,
+		option;
+	istringstream
+		iss (line);
+	ostringstream
+		oss,
+		oss1,
+		oss2,
+		oss3;
+	int
+		questions,
+		i;
+	PGresult*
+		res;
+	
+	iss >> comando >> game_id;
+	
+	res = executeSQL ("SELECT questions FROM games WHERE id = " + game_id + "");
+	questions = atoi (PQgetvalue (res, 0, 0));
+
+	oss3 << "Este jogo tem " << questions << " perguntas.";
+	writeline (socketfd, oss3.str ());
+	
+	for (i = 0; i < questions; i++)
+	{
+		oss1 << "SELECT question_id FROM gamequestions WHERE game_id = " << game_id << " AND question_nr = " << i + 1;
+		res = executeSQL (oss1.str ());
+		question_id = PQgetvalue (res, 0, 0);
+
+		oss2 << "SELECT question, answer, wrong1, wrong2, wrong3 FROM questions WHERE id = " << question_id;
+		res = executeSQL (oss2.str ());
+		question = PQgetvalue (res, 0, 0);
+		answer = PQgetvalue (res, 0, 1);
+		wrong1 = PQgetvalue (res, 0, 2);
+		wrong2 = PQgetvalue (res, 0, 3);
+		wrong3 = PQgetvalue (res, 0, 4);
+		
+		oss << "Pergunta: " << question << endl
+		<< "Respostas:" << endl
+		<< "a) " << answer << endl
+		<< "b) " << wrong1 << endl
+		<< "c) " << wrong2 << endl
+		<< "d) " << wrong3 << endl
+		<< "Resposta:";
+		
+		writeline (socketfd, oss.str ());
+		
+		readline (socketfd, line2);
+		istringstream
+			iss1 (line2);
+		iss1 >> option;
+		
+		if (option == "a")
+			writeline (socketfd, "Acertou! Próxima pergunta..");
+		else
+		{
+			writeline (socketfd, "Perdeu! A sair do jogo..");
+			break;
+		}
+	}
+	
+	if (i == questions)
+	{
+		writeline (socketfd, "Ganhou o jogo!");
 	}
 }
 
@@ -414,6 +492,8 @@ void* cliente (void* args)
 			cmd_create (socketfd, line);
 		else if (line.find ("\\insert") == 0)
 			cmd_insert (socketfd, line);
+		else if (line.find ("\\play") == 0)
+			cmd_play (socketfd, line);
 		else if (line.find ("\\listusers") == 0)
 			cmd_listusers (socketfd);
 

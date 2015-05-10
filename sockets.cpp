@@ -89,29 +89,29 @@ void broadcast (int origin, string text)
 PGresult* executeSQL(string sql)
 {
 	PGresult* res = PQexec(conn, sql.c_str());
-	
-	if (!(PQresultStatus(res) == PGRES_COMMAND_OK || PQresultStatus(res) == PGRES_TUPLES_OK))
+
+	if (!(PQresultStatus (res) == PGRES_COMMAND_OK || PQresultStatus (res) == PGRES_TUPLES_OK))
 	{
-		cout << "Não foi possí­vel executar o comando!" << endl;
+		cout << "Não foi possível executar o comando: >" << sql << " | " << sql.c_str() << "<" << " = " << PQresultStatus (res) << endl;
 		return NULL;
 	}
-	
+
 	return res;
 }
 
-void initDB ()
+void initDB()
 {
-	conn = PQconnectdb("host='vdbm.fe.up.pt' user='sinf15g34' password='eu' dbname='sinf15g34'");
-	
+	conn = PQconnectdb ("host='vdbm.fe.up.pt' user='sinf15g34' password='eu' dbname='sinf15g34'");
+
 	if (!conn)
 	{
-		cout << "Não foi possivel ligar a base de dados" << endl;
+		cout << "Não foi possivel ligar a base de dados 1" << endl;
 		exit(-1);
 	}
-	
+
 	if (PQstatus(conn) != CONNECTION_OK)
 	{
-		cout << "Não foi possivel ligar a base de dados" << endl;
+		cout << "Não foi possivel ligar a base de dados 2" << endl;
 		exit(-1);
 	}
 	else
@@ -122,12 +122,22 @@ void initDB ()
 
 void closeDB ()
 {
-	PQfinish(conn);
+	PQfinish (conn);
 }
 
 /* FUNÇOES DE CONTACTO COM A BASE-DE-DADOS */
 
-void help (int socketfd)
+/* FUNÇOES DO JOGO */
+
+void search ()
+{
+	PGresult* res = executeSQL ("SELECT nome FROM utilizador");
+	
+	for (int row = 0; row < PQntuples (res); row++)
+		cout << PQgetvalue (res, row, 0) << endl;
+}
+
+void cmd_help (int socketfd)
 {
 	ostringstream
 		oss;
@@ -136,19 +146,21 @@ void help (int socketfd)
 	<< "Pode usar umas das seguintes funções:" << endl
 	<< "-------------------------------------" << endl
 	<< "\\help ..............................." << endl
-	<< "Lista os comandos todos disponíveis  ;" << endl;
+	<< "Lista os comandos todos disponíveis ;" << endl << endl
+	<< "\\register <name> <password> ........." << endl
+	<< "Regista um user com name e password ;" << endl << endl;
 
 	string
 		data = oss.str();
 	writeline (socketfd, data);
 }
 
-void register (int socketfd, string &line)
+void cmd_register (int socketfd, string &line)
 {
 	string
 		comando,
 		user,
-		pass,
+		pass;
 	istringstream
 		iss(line);
  
@@ -161,7 +173,12 @@ void register (int socketfd, string &line)
 	}
 	else
 	{
-		PGresult* res = executeSQL ("SELECT * FROM utilizadores WHERE nome = '" + user + "'");
+		PGresult* res2 = executeSQL("SELECT nome FROM utilizador");
+	
+		for (int row = 0; row < PQntuples(res2); row++)
+			cout << PQgetvalue(res2, row, 0) << endl;
+		
+		PGresult* res = executeSQL ("SELECT * FROM utilizador WHERE nome = '" + user + "'");
 		
 		if (PQntuples (res) > 0) // caso já existe um utilizador com o mesmo username 
 		{
@@ -169,11 +186,14 @@ void register (int socketfd, string &line)
 		}
 		else // caso não exista este username
 		{
-			executeSQL ("INSERT INTO utilizadores VALUES ('" + user +"', '" + pass + "', 'false', 'false')"); //não é admin nem está online
-			writeline (socketfd, "Utilizador " + user + "criado!");
+			// executeSQL ("INSERT INTO utilizadores VALUES ('" + user +"', '" + pass + "', 'false', 'false')"); //não é admin nem está online
+			executeSQL ("INSERT INTO utilizador (nome, pass, rest, estado) VALUES ('" + user +"', '" + pass + "', 'nada', FALSE)");
+			writeline (socketfd, "Utilizador " + user + " criado com pass = " + pass + "!");
 		}
 	}
 }
+
+/* FUNÇOES DO JOGO */
 
 /* Trata de receber dados de um cliente cujo socketid foi passado como parâmetro */
 void* cliente (void* args)
@@ -192,9 +212,9 @@ void* cliente (void* args)
 		broadcast (socketfd, line);
 		
 		if (line.find ("\\help") == 0)
-			help (socketfd);
+			cmd_help (socketfd);
 		else if (line.find ("\\register") == 0)
-			register (socketfd, *line);
+			cmd_register (socketfd, line);
 	}
 
 	cout << "Client disconnected: " << socketfd << endl;
@@ -218,6 +238,9 @@ int main (int argc, char *argv[])
 		cli_addr;
 
 	cout << "Port: " << port << endl;
+	initDB ();
+	
+	search ();
 
 	// Inicializar o socket
 	// AF_INET:			para indicar que queremos usar IP
@@ -265,6 +288,7 @@ int main (int argc, char *argv[])
 		pthread_create (&thread, NULL, cliente, &newsocketfd);
 	}
 
+	closeDB ();
 	close (socketfd);
 	return 0; 
 }

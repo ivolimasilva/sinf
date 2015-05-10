@@ -21,6 +21,20 @@ PGconn* conn = NULL;
 
 set <int> clients;
 
+struct curr_user
+{
+	int id;
+	string name;
+	bool admin;
+} curr_user;
+
+void empty_curr_user ()
+{
+	curr_user.name = "";
+	curr_user.id = 0;
+	curr_user.admin = false;
+}
+
 /* FUNÇOES DE ESCRITA ENTRE SOCKETS */
 
 /* Envia uma string para um socket */
@@ -92,7 +106,7 @@ PGresult* executeSQL(string sql)
 
 	if (!(PQresultStatus (res) == PGRES_COMMAND_OK || PQresultStatus (res) == PGRES_TUPLES_OK))
 	{
-		cout << "Não foi possível executar o comando: >" << sql << " | " << sql.c_str() << "<" << " = " << PQresultStatus (res) << endl;
+		cout << "Não foi possível executar o comando: >" << sql << "<" << endl << ">" << sql.c_str() << "<" << endl << " = " << PQresultStatus (res) << endl;
 		return NULL;
 	}
 
@@ -127,6 +141,13 @@ void closeDB ()
 
 /* FUNÇOES DE CONTACTO COM A BASE-DE-DADOS */
 
+void print_curr_user ()
+{
+	cout << "ID: " << curr_user.id << endl
+	<< "Name: " << curr_user.name << endl
+	<< "Admin: " << curr_user.admin << endl;
+}
+
 /* FUNÇOES DO JOGO */
 
 void cmd_help (int socketfd)
@@ -134,15 +155,22 @@ void cmd_help (int socketfd)
 	ostringstream
 		oss;
 	string
-		data = oss.str();
+		data;
 
 	oss << "Pode usar umas das seguintes funções:" << endl
 	<< "-------------------------------------" << endl
 	<< "\\help ..............................." << endl
 	<< "Lista os comandos todos disponíveis ;" << endl << endl
 	<< "\\register <name> <password> ........." << endl
-	<< "Regista um user com name e password ;" << endl << endl;
+	<< "Regista um user com name e password ;" << endl << endl
+	<< "\\login <name> <password> ........." << endl
+	<< "Login do user com a sua password    ;" << endl << endl
+	<< "\\logout .........................." << endl
+	<< "Faz logout da sessão actual         ;" << endl << endl
+	<< "\\listusers .........................." << endl
+	<< "Lista todos os users registados     ;" << endl << endl;
 
+	data = oss.str();
 	writeline (socketfd, data);
 }
 
@@ -163,8 +191,8 @@ void cmd_register (int socketfd, string &line)
 		return ;
 	}
 	else
-	{		
-		PGresult* res = executeSQL ("SELECT * FROM users WHERE name = '" + user + "'");
+	{	
+		PGresult* res = executeSQL ("SELECT * FROM players WHERE name = '" + user + "'");
 		
 		if (PQntuples (res) > 0) // caso já existe um utilizador com o mesmo username 
 		{
@@ -172,9 +200,83 @@ void cmd_register (int socketfd, string &line)
 		}
 		else // caso não exista este username
 		{
-			executeSQL ("INSERT INTO users VALUES ('" + user +"', '" + pass + "', FALSE, FALSE)"); //não é admin nem está online
+			executeSQL ("INSERT INTO players (name, password, admin, online) VALUES ('" + user + "', '" + pass + "', FALSE, FALSE)"); //não é admin nem está online
 		}
 	}
+}
+
+void cmd_login (int socketfd, string &line)
+{
+	string
+		comando,
+		user,
+		pass;
+	istringstream
+		iss(line);
+ 
+	iss >> comando >> user >> pass;
+	
+	if (curr_user.id != 0)
+	{
+		writeline (socketfd, "Já existe uma sessão iniciada. Faça \\logout");
+		return ;
+	}
+
+	PGresult* res = executeSQL ("SELECT * FROM players WHERE name = '" + user + "' AND password = '" + pass + "' AND online = FALSE");
+	
+	if (PQntuples (res) == 1) // sucesso 
+	{
+		curr_user.id = atoi (PQgetvalue (res, 0, 0));
+		curr_user.name = PQgetvalue (res, 0, 1);
+		if (strcmp (PQgetvalue (res, 0, 3), "TRUE") == 0)
+			curr_user.admin = true;
+		else
+			curr_user.admin = false;
+
+		print_curr_user ();
+		
+		ostringstream
+			oss;
+
+		oss << "UPDATE players SET online = TRUE WHERE id = " << curr_user.id;
+
+		executeSQL (oss.str());
+		writeline (socketfd, "Login com sucesso!");
+	}
+	else // insucesso
+	{
+		writeline (socketfd, "Erro: username/password errados ou conta já está aberta noutro client.");
+	}
+}
+
+void cmd_logout (int socketfd)
+{
+	ostringstream
+		oss;
+
+	oss << "UPDATE players SET online = FALSE WHERE id = " << curr_user.id;
+
+	executeSQL (oss.str());
+	writeline (socketfd, "Logout com sucesso!");
+	
+	empty_curr_user ();
+}
+
+void cmd_listusers (int socketfd)
+{
+	ostringstream
+		oss;
+	string
+		data;
+	
+	PGresult* res = executeSQL ("SELECT * FROM players");
+	for (int i = 0; i < PQntuples (res); i++)
+	{
+		oss << "Id: " << PQgetvalue (res, i, 0) << endl << "Nome: " << PQgetvalue (res, i, 1) << endl << endl;
+	}
+
+	data = oss.str();
+	writeline (socketfd, data);
 }
 
 /* FUNÇOES DO JOGO */
@@ -190,25 +292,22 @@ void* cliente (void* args)
 	clients.insert (socketfd);
 
 	cout << "Client connected: " << socketfd << endl;
-	
-	ostringstream
-		oss;
-	string
-		data = oss.str();
 
-	oss << "Bem vindo ao \"Quem não quer ser miseravelmente pobre?\"" << endl << endl;
-
-	writeline (socketfd, data);
-	
+	writeline (socketfd, curr_user.name + "> ");
 	while (readline (socketfd, line))
-	{
-		cout << "Socket " << socketfd << " said: " << line << endl;
-		broadcast (socketfd, line);
-		
+	{		
 		if (line.find ("\\help") == 0)
 			cmd_help (socketfd);
 		else if (line.find ("\\register") == 0)
 			cmd_register (socketfd, line);
+		else if (line.find ("\\login") == 0)
+			cmd_login (socketfd, line);
+		else if (line.find ("\\logout") == 0)
+			cmd_logout (socketfd);
+		else if (line.find ("\\listusers") == 0)
+			cmd_listusers (socketfd);
+
+		writeline (socketfd, curr_user.name + "> ");
 	}
 
 	cout << "Client disconnected: " << socketfd << endl;
@@ -232,7 +331,9 @@ int main (int argc, char *argv[])
 		cli_addr;
 
 	cout << "Port: " << port << endl;
+
 	initDB ();
+	empty_curr_user ();
 
 	// Inicializar o socket
 	// AF_INET:			para indicar que queremos usar IP

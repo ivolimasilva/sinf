@@ -262,6 +262,110 @@ void cmd_logout (int socketfd)
 	empty_curr_user ();
 }
 
+void cmd_question (int socketfd, string &line)
+{
+	string
+		comando,
+		question,
+		answer,
+		wrong1,
+		wrong2,
+		wrong3,
+		data;
+	istringstream
+		iss (line);
+	ostringstream
+		oss;
+ 
+	iss >> comando >> question >> answer >> wrong1 >> wrong2 >> wrong3;
+	
+	PGresult* res = executeSQL ("SELECT * FROM questions WHERE question = '" + question + "'");
+		
+	if (PQntuples (res) > 0) // caso já existe esta questao 
+	{
+		writeline (socketfd, "Já existe esta pergunta!");
+	}
+	else // caso não exista esta questao
+	{
+		executeSQL ("INSERT INTO questions (question, answer, wrong1, wrong2, wrong3) VALUES ('" + question + "', '" + answer + "', '" + wrong1 + "', '" + wrong2 + "', '" + wrong3 + "')");
+		res = executeSQL ("SELECT id FROM questions WHERE question = '" + question + "'");
+
+		oss << "Questao criada com o ID: " << PQgetvalue (res, 0, 0);
+	
+		data = oss.str();
+		writeline (socketfd, data);
+	}
+}
+
+void cmd_create (int socketfd, string &line)
+{
+	string
+		comando,
+		time,
+		data;
+	istringstream
+		iss (line);
+	
+	iss >> comando >> time;
+	
+	ostringstream
+		oss1,
+		oss2,
+		oss3;
+
+	oss1 << "INSERT INTO games (creator_id, questions, time) VALUES (" << curr_user.id << ", 0, " << time << ")";
+	executeSQL (oss1.str());
+	
+	oss2 << "SELECT id FROM games WHERE creator_id = " << curr_user.id << " AND questions = 0 AND time = " << time << "";	
+	PGresult* res = executeSQL (oss2.str());
+	oss3 << "Jogo criado com o ID: " << PQgetvalue (res, 0, 0);
+	
+	data = oss3.str();
+	writeline (socketfd, data);
+}
+
+void cmd_insert (int socketfd, string &line)
+{
+	string
+		comando,
+		game_id,
+		question_id;
+	istringstream
+		iss (line);
+	ostringstream
+		oss1,
+		oss2;
+	PGresult*
+		res;
+	int
+		question_nr;
+	
+	iss >> comando >> game_id >> question_id;
+	
+	res = executeSQL ("SELECT * FROM questions WHERE id = '" + question_id + "'");
+	if (PQntuples (res) == 0)
+	{
+		writeline (socketfd, "Pergunta nao encontrado.");
+		return ;
+	}
+	
+	res = executeSQL ("SELECT questions FROM games WHERE id = '" + game_id + "'");
+	if (PQntuples (res) == 0)
+	{
+		writeline (socketfd, "Jogo nao encontrado.");
+		return ;
+	}
+	else
+	{
+		question_nr = 1 + atoi (PQgetvalue (res, 0, 0));
+		oss1 << "INSERT INTO gamequestions (game_id, question_nr, question_id) VALUES (" << game_id << ", " << question_nr << ", " << question_id << ")";
+		executeSQL (oss1.str());
+		
+		oss2 << "UPDATE games SET questions = " << question_nr << " WHERE id = " << game_id;
+		executeSQL (oss2.str());
+	}
+}
+
 void cmd_listusers (int socketfd)
 {
 	ostringstream
@@ -304,6 +408,12 @@ void* cliente (void* args)
 			cmd_login (socketfd, line);
 		else if (line.find ("\\logout") == 0)
 			cmd_logout (socketfd);
+		else if (line.find ("\\question") == 0)
+			cmd_question (socketfd, line);
+		else if (line.find ("\\create") == 0)
+			cmd_create (socketfd, line);
+		else if (line.find ("\\insert") == 0)
+			cmd_insert (socketfd, line);
 		else if (line.find ("\\listusers") == 0)
 			cmd_listusers (socketfd);
 

@@ -12,6 +12,7 @@
 
 #include <time.h>
 #include <postgresql/libpq-fe.h>
+#include <algorithm>
 
 #include <set>
 
@@ -41,7 +42,7 @@ void empty_curr_user ()
 void writeline (int socketfd, string line)
 {
 	string tosend = line + "\n";
-	write(socketfd, tosend.c_str(), tosend.length());
+	write (socketfd, tosend.c_str(), tosend.length());
 }
 
 /* Lê uma linha de um socket; Retorna false se o socket se tiver fechado */
@@ -159,16 +160,15 @@ void cmd_help (int socketfd)
 
 	oss << "Pode usar umas das seguintes funções:" << endl
 	<< "-------------------------------------" << endl
-	<< "\\help ..............................." << endl
-	<< "Lista os comandos todos disponíveis ;" << endl << endl
-	<< "\\register <name> <password> ........." << endl
-	<< "Regista um user com name e password ;" << endl << endl
-	<< "\\login <name> <password> ........." << endl
-	<< "Login do user com a sua password    ;" << endl << endl
-	<< "\\logout .........................." << endl
-	<< "Faz logout da sessão actual         ;" << endl << endl
-	<< "\\listusers .........................." << endl
-	<< "Lista todos os users registados     ;" << endl << endl;
+	<< "\\help																				Lista os comandos todos disponiveis;" << endl
+	<< "\\register <name> <password>														Regista um user com name e password;" << endl
+	<< "\\login <name> <password>															Login do user com a sua password;" << endl
+	<< "\\logout																			Faz logout da sessão actual;" << endl
+	<< "\\question <question> <right_answer> <wrong_answer> <wrong_answer> <wrong_answer>	Cria uma questao sem ser atribuida a um jogo;" << endl
+	<< "\\create <timer>																	Cria um jogo (o timer nao funciona);" << endl
+	<< "\\insert <game_id> <question_id>													Associa uma questao a um jogo;" << endl
+	<< "\\listusers																			Lista todos os users registados;" << endl
+	<< "\\exit																				Desliga-se do servidor;" << endl;
 
 	data = oss.str();
 	writeline (socketfd, data);
@@ -253,6 +253,12 @@ void cmd_logout (int socketfd)
 {
 	ostringstream
 		oss;
+	
+	if (curr_user.id == 0)
+	{
+		writeline (socketfd, "Não existe uma sessão iniciada. Faça \\login");
+		return ;
+	}
 
 	oss << "UPDATE players SET online = FALSE WHERE id = " << curr_user.id;
 
@@ -276,6 +282,12 @@ void cmd_question (int socketfd, string &line)
 		iss (line);
 	ostringstream
 		oss;
+	
+	if (curr_user.id == 0)
+	{
+		writeline (socketfd, "Não existe uma sessão iniciada. Faça \\login");
+		return ;
+	}
  
 	iss >> comando >> question >> answer >> wrong1 >> wrong2 >> wrong3;
 	
@@ -312,6 +324,12 @@ void cmd_create (int socketfd, string &line)
 		oss1,
 		oss2,
 		oss3;
+	
+	if (curr_user.id == 0)
+	{
+		writeline (socketfd, "Não existe uma sessão iniciada. Faça \\login");
+		return ;
+	}
 
 	oss1 << "INSERT INTO games (creator_id, questions, time) VALUES (" << curr_user.id << ", 0, " << time << ")";
 	executeSQL (oss1.str());
@@ -339,6 +357,12 @@ void cmd_insert (int socketfd, string &line)
 		res;
 	int
 		question_nr;
+		
+	if (curr_user.id == 0)
+	{
+		writeline (socketfd, "Não existe uma sessão iniciada. Faça \\login");
+		return ;
+	}
 	
 	iss >> comando >> game_id >> question_id;
 	
@@ -374,9 +398,10 @@ void cmd_play (int socketfd, string &line)
 		question_id,
 		question,
 		answer,
-		wrong1,
-		wrong2,
-		wrong3,
+		answer1,
+		answer2,
+		answer3,
+		answer4,
 		line2,
 		option;
 	istringstream
@@ -388,49 +413,84 @@ void cmd_play (int socketfd, string &line)
 		oss3;
 	int
 		questions,
+		waittime,
 		i;
 	PGresult*
 		res;
 	
+	if (curr_user.id == 0)
+	{
+		writeline (socketfd, "Não existe uma sessão iniciada. Faça \\login");
+		return ;
+	}
+	
 	iss >> comando >> game_id;
 	
-	res = executeSQL ("SELECT questions FROM games WHERE id = " + game_id + "");
+	res = executeSQL ("SELECT questions, time FROM games WHERE id = " + game_id + "");
+	if (PQntuples (res) == 0)
+	{
+		writeline (socketfd, "Jogo nao encontrado.");
+		return ;
+	}
 	questions = atoi (PQgetvalue (res, 0, 0));
+	waittime = atoi (PQgetvalue (res, 0, 1));
 
 	oss3 << "Este jogo tem " << questions << " perguntas.";
 	writeline (socketfd, oss3.str ());
 	
 	for (i = 0; i < questions; i++)
 	{
+		oss1.str ("");
+		oss1.clear ();
 		oss1 << "SELECT question_id FROM gamequestions WHERE game_id = " << game_id << " AND question_nr = " << i + 1;
 		res = executeSQL (oss1.str ());
 		question_id = PQgetvalue (res, 0, 0);
 
+		oss2.str ("");
+		oss2.clear ();
 		oss2 << "SELECT question, answer, wrong1, wrong2, wrong3 FROM questions WHERE id = " << question_id;
 		res = executeSQL (oss2.str ());
+		
+		srand (time (NULL));
+
+		int
+	        randomset[4] = {1, 2, 3, 4};
+	       
+	    random_shuffle (&randomset[0], &randomset[3]);
+
 		question = PQgetvalue (res, 0, 0);
 		answer = PQgetvalue (res, 0, 1);
-		wrong1 = PQgetvalue (res, 0, 2);
-		wrong2 = PQgetvalue (res, 0, 3);
-		wrong3 = PQgetvalue (res, 0, 4);
-		
+		answer1 = PQgetvalue (res, 0, randomset[0]);
+		answer2 = PQgetvalue (res, 0, randomset[1]);
+		answer3 = PQgetvalue (res, 0, randomset[2]);
+		answer4 = PQgetvalue (res, 0, randomset[3]);
+
+		oss.str ("");
+		oss.clear ();
 		oss << "Pergunta: " << question << endl
-		<< "Respostas:" << endl
-		<< "a) " << answer << endl
-		<< "b) " << wrong1 << endl
-		<< "c) " << wrong2 << endl
-		<< "d) " << wrong3 << endl
-		<< "Resposta:";
+			<< "Respostas:" << endl
+			<< "a) " << answer1 << endl
+			<< "b) " << answer2 << endl
+			<< "c) " << answer3 << endl
+			<< "d) " << answer4 << endl
+			<< "Resposta:";
 		
 		writeline (socketfd, oss.str ());
 		
 		readline (socketfd, line2);
+
 		istringstream
 			iss1 (line2);
 		iss1 >> option;
 		
-		if (option == "a")
-			writeline (socketfd, "Acertou! Próxima pergunta..");
+		if (option == "a" && answer1 == answer)
+				writeline (socketfd, "Acertou! Próxima pergunta..");
+		else if (option == "b" && answer2 == answer)
+				writeline (socketfd, "Acertou! Próxima pergunta..");
+		else if (option == "c" && answer3 == answer)
+				writeline (socketfd, "Acertou! Próxima pergunta..");
+		else if (option == "d" && answer4 == answer)
+				writeline (socketfd, "Acertou! Próxima pergunta..");
 		else
 		{
 			writeline (socketfd, "Perdeu! A sair do jogo..");
@@ -454,7 +514,7 @@ void cmd_listusers (int socketfd)
 	PGresult* res = executeSQL ("SELECT * FROM players");
 	for (int i = 0; i < PQntuples (res); i++)
 	{
-		oss << "Id: " << PQgetvalue (res, i, 0) << endl << "Nome: " << PQgetvalue (res, i, 1) << endl << endl;
+		oss << "ID: " << PQgetvalue (res, i, 0) << endl << "Nome: " << PQgetvalue (res, i, 1) << endl;
 	}
 
 	data = oss.str();
@@ -494,6 +554,11 @@ void* cliente (void* args)
 			cmd_insert (socketfd, line);
 		else if (line.find ("\\play") == 0)
 			cmd_play (socketfd, line);
+		else if (line.find ("\\exit") == 0)
+		{
+			cmd_logout (socketfd);
+			break;
+		}
 		else if (line.find ("\\listusers") == 0)
 			cmd_listusers (socketfd);
 
@@ -556,7 +621,7 @@ int main (int argc, char *argv[])
 	}
 
 	// Indicar que queremos escutar no socket com um backlog de 5 (podem ficar até 5 ligações pendentes antes de fazermos accept)
-	listen(socketfd, 5);
+	listen (socketfd, 5);
 
 	while (true)
 	{

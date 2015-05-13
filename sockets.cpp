@@ -102,7 +102,7 @@ void empty_curr_user (userAcc *currentUser)
 
 void print_curr_user (userAcc *currentUser)
 {
-	cout << endl << "User mem:" << currentUser << endl;
+	cout << endl << "User mem: " << currentUser << endl;
 	cout << "ID: " << (*currentUser).id << endl;
 	cout << "Name: " << (*currentUser).name << endl;
 	cout << "Admin: " << (*currentUser).admin << endl << endl;
@@ -202,7 +202,7 @@ void cmd_register (int socketfd, string &line)
 		}
 		else // caso não exista este username
 		{
-			executeSQL ("INSERT INTO players (name, password, admin, online) VALUES ('" + user + "', '" + pass + "', FALSE, FALSE)"); //não é admin nem está online
+			executeSQL ("INSERT INTO players (name, password, admin, online, gameswon) VALUES ('" + user + "', '" + pass + "', FALSE, 'offline', 0)"); //não é admin nem está online
 		}
 	}
 }

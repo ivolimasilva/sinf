@@ -12,8 +12,8 @@ CREATE TABLE projeto.players
 	name VARCHAR (20) UNIQUE NOT NULL,
 	password VARCHAR (20) NOT NULL,
 	admin BOOLEAN NOT NULL,
-	online statusEnum NOT NULL,
-	gamesWon INTEGER NOT NULL
+	status statusEnum DEFAULT 'offline',
+	gamesWon INTEGER DEFAULT 0
 );
 
 CREATE TABLE projeto.games
@@ -46,3 +46,6 @@ CREATE TABLE projeto.messages
 	receiver_id BIGINT REFERENCES projeto.players (id) NOT NULL,
 	msgText VARCHAR (30) NOT NULL
 );
+
+INSERT INTO projeto.players (name, password, admin) VALUES ('ivosilva', '12345', FALSE);
+INSERT INTO projeto.players (name, password, admin) VALUES ('danielacarmo', '12345', TRUE);

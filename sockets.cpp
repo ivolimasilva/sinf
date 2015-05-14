@@ -175,12 +175,20 @@ void cmd_help (int socketfd)
 	<< "	Faz logout da sessão actual;" << endl
 	<< "\\question <question> <right_answer> <wrong_answer> <wrong_answer> <wrong_answer>"<< endl
 	<< "	Cria uma questao sem ser atribuida a um jogo;" << endl
-	<< "\\create <timer>" << endl
-	<< "	Cria um jogo (o timer nao funciona);" << endl
+	<< "\\create" << endl
+	<< "	Cria um jogo;" << endl
 	<< "\\insert <game_id> <question_id>" << endl
 	<< "	Associa uma questao a um jogo;" << endl
 	<< "\\start <game_id>" << endl
 	<< "	Comeca o jogo com o ID indicado;" << endl
+	<< "\\challenge <username> <game_id>" << endl
+	<< "	Desafia o jogador para o jogo com o ID indicado;" << endl
+	<< "\\msg <username> <msg>" << endl
+	<< "	Envia uma mensagem ao utilizador;" << endl
+	<< "\\inbox" << endl
+	<< "	Mostra as mensagens recebidas;" << endl
+	<< "\\outbox" << endl
+	<< "	Mostra as mensagens enviadas;" << endl
 	<< "\\ranking" << endl
 	<< "	Lista todos os utilizadores por ranking;" << endl
 	<< "\\listusers" << endl
@@ -457,7 +465,6 @@ void cmd_start (userAcc *currentUser, int socketfd, string &line)
 		return ;
 	}
 	questions = atoi (PQgetvalue (res, 0, 0));
-	// waittime = atoi (PQgetvalue (res, 0, 1));
 
 	oss3 << "Este jogo tem " << questions << " perguntas.";
 	writeline (socketfd, oss3.str ());

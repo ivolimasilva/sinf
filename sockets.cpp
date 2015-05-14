@@ -352,10 +352,10 @@ void cmd_create (userAcc *currentUser, int socketfd, string &line)
 		return ;
 	}
 
-	oss1 << "INSERT INTO games (creator_id, questions, time) VALUES (" << (*currentUser).id << ", 0, " << time << ")";
+	oss1 << "INSERT INTO games (creator_id, questions) VALUES (" << (*currentUser).id << ", 0)";
 	executeSQL (oss1.str());
 	
-	oss2 << "SELECT id FROM games WHERE creator_id = " << (*currentUser).id << " AND questions = 0 AND time = " << time << "";	
+	oss2 << "SELECT id FROM games WHERE creator_id = " << (*currentUser).id << " AND questions = 0";	
 	PGresult* res = executeSQL (oss2.str());
 	oss3 << "Jogo criado com o ID: " << PQgetvalue (res, 0, 0);
 	
@@ -450,14 +450,14 @@ void cmd_start (userAcc *currentUser, int socketfd, string &line)
 	
 	iss >> comando >> game_id;
 	
-	res = executeSQL ("SELECT questions, time FROM games WHERE id = " + game_id + "");
+	res = executeSQL ("SELECT questions FROM games WHERE id = " + game_id + "");
 	if (PQntuples (res) == 0)
 	{
 		writeline (socketfd, "Jogo nao encontrado.");
 		return ;
 	}
 	questions = atoi (PQgetvalue (res, 0, 0));
-	waittime = atoi (PQgetvalue (res, 0, 1));
+	// waittime = atoi (PQgetvalue (res, 0, 1));
 
 	oss3 << "Este jogo tem " << questions << " perguntas.";
 	writeline (socketfd, oss3.str ());
@@ -536,6 +536,35 @@ void cmd_start (userAcc *currentUser, int socketfd, string &line)
 	// tira o jogador do ocupado
 	ossUpdate3 << "UPDATE players SET status = 'online' WHERE id = " << (*currentUser).id;
 	executeSQL (ossUpdate3.str());
+}
+
+void cmd_challenge (userAcc *currentUser, int socketfd, string &line)
+{
+	if ((*currentUser).id == 0)
+	{
+		writeline (socketfd, "Não existe uma sessão iniciada. Faça \\login");
+		return ;
+	}
+	
+	istringstream
+		iss (line);
+	string
+		comand,
+		receiverName,
+		game_id;
+	
+	iss >> comand >> receiverName >> game_id;
+
+	PGresult*
+		res;
+	
+	res = executeSQL ("SELECT id FROM players WHERE name = '" + receiverName + "'");
+	
+	ostringstream
+		output;
+	
+	output << "INSERT INTO challenges (sender_id, receiver_id, game_id) VALUES (" << (*currentUser).id << ", " << PQgetvalue (res, 0, 0) << ", " << game_id << ")";
+	executeSQL (output.str ());
 }
 
 void cmd_msg (userAcc *currentUser, int socketfd, string &line)
@@ -705,6 +734,54 @@ void verify_msg (userAcc *currentUser, int socketfd)
 	}
 }
 
+void verify_challenges (userAcc *currentUser, int socketfd)
+{
+	ostringstream
+		oss,
+		oss1,
+		oss2;
+	string
+		line2;
+
+	cout << "A verificar challenges do user " << (*currentUser).name << endl;
+	oss << "SELECT game_id, sender_id FROM challenges WHERE receiver_id = " << (*currentUser).id << "AND answer is NULL";
+	PGresult* res = executeSQL (oss.str ());
+	
+	if (PQntuples (res) > 0)
+	{
+		oss1 << "SELECT name FROM players WHERE id = " << PQgetvalue (res, 0, 1);
+		PGresult* res1 = executeSQL (oss1.str ());
+
+		oss2 << "Tem um desafio novo de " << PQgetvalue (res1, 0, 0) << " para o jogo com o ID = " << PQgetvalue (res, 0, 0) << endl << "Aceita? S/N";
+		writeline (socketfd, oss2.str ());
+		readline (socketfd, line2);
+		
+		if (line2 == "S")
+		{
+			ostringstream
+				ossUpdate,
+				game_id;
+			string
+				data;
+	
+			ossUpdate << "UPDATE challenges SET answer = TRUE WHERE sender_id = " << PQgetvalue (res, 0, 1) << "AND receiver_id = " << (*currentUser).id << "AND game_id = " << PQgetvalue (res, 0, 0);
+			executeSQL (ossUpdate.str());
+			
+			game_id << "\\start " << PQgetvalue (res, 0, 0);
+			data = game_id.str ();
+			cmd_start (currentUser, socketfd, data);
+		}
+		else
+		{
+			ostringstream
+				ossUpdate;
+	
+			ossUpdate << "UPDATE challenges SET answer = FALSE WHERE sender_id = " << PQgetvalue (res, 0, 1) << "AND receiver_id = " << (*currentUser).id << "AND game_id = " << PQgetvalue (res, 0, 0);
+			executeSQL (ossUpdate.str());
+		}
+	}
+}
+
 /* Trata de receber dados de um cliente cujo socketid foi passado como parâmetro */
 void* cliente (void* args)
 {
@@ -745,6 +822,8 @@ void* cliente (void* args)
 			cmd_insert (currentUser, socketfd, line);
 		else if (line.find ("\\start") == 0)
 			cmd_start (currentUser, socketfd, line);
+		else if (line.find ("\\challenge") == 0)
+			cmd_challenge (currentUser, socketfd, line);
 		else if (line.find ("\\msg") == 0)
 			cmd_msg (currentUser, socketfd, line);
 		else if (line.find ("\\inbox") == 0)
@@ -762,7 +841,10 @@ void* cliente (void* args)
 		}
 
 		if ((*currentUser).id != 0)
+		{
 			verify_msg (currentUser, socketfd);
+			verify_challenges (currentUser, socketfd);
+		}
 
 		writeline (socketfd, (*currentUser).name + "> ");
 	}

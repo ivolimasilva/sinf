@@ -3,6 +3,7 @@ DROP TABLE IF EXISTS projeto.games CASCADE;
 DROP TABLE IF EXISTS projeto.questions CASCADE;
 DROP TABLE IF EXISTS projeto.gamequestions CASCADE;
 DROP TABLE IF EXISTS projeto.messages CASCADE;
+DROP TABLE IF EXISTS projeto.challenges CASCADE;
 
 CREATE TYPE statusEnum AS ENUM ('online', 'busy', 'offline');
 
@@ -45,6 +46,14 @@ CREATE TABLE projeto.messages
 	sender_id BIGINT REFERENCES projeto.players (id) NOT NULL, 
 	receiver_id BIGINT REFERENCES projeto.players (id) NOT NULL,
 	msgText VARCHAR (30) NOT NULL
+);
+
+CREATE TABLE projeto.challenges
+(  
+	sender_id BIGINT REFERENCES projeto.players (id) NOT NULL, 
+	receiver_id BIGINT REFERENCES projeto.players (id) NOT NULL,
+	game_id BIGINT REFERENCES projeto.games (id) NOT NULL,
+	answer BOOLEAN
 );
 
 INSERT INTO projeto.players (name, password, admin) VALUES ('ivosilva', '12345', FALSE);

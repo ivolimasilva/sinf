@@ -15,12 +15,15 @@
 #include <algorithm>
 
 #include <set>
+#include <map>
 
 using namespace std;
 
 PGconn* conn = NULL;
 
+pthread_mutex_t mutex;
 set <int> clients;
+map <string, int> userSockets;
 
 struct userAcc
 {
@@ -116,7 +119,7 @@ PGresult* executeSQL(string sql)
 
 	if (!(PQresultStatus (res) == PGRES_COMMAND_OK || PQresultStatus (res) == PGRES_TUPLES_OK))
 	{
-		cout << "Não foi possível executar o comando: >" << sql << "<" << endl << ">" << sql.c_str() << "<" << endl << " = " << PQresultStatus (res) << endl;
+		cout << "Não foi possível executar o comando: >" << endl << sql << "<" << endl << ">" << sql.c_str() << "<" << endl << " = " << PQresultStatus (res) << endl;
 		return NULL;
 	}
 
@@ -162,15 +165,28 @@ void cmd_help (int socketfd)
 
 	oss << "Pode usar umas das seguintes funções:" << endl
 	<< "-------------------------------------" << endl
-	<< "\\help																				Lista os comandos todos disponiveis;" << endl
-	<< "\\register <name> <password>														Regista um user com name e password;" << endl
-	<< "\\login <name> <password>															Login do user com a sua password;" << endl
-	<< "\\logout																			Faz logout da sessão actual;" << endl
-	<< "\\question <question> <right_answer> <wrong_answer> <wrong_answer> <wrong_answer>	Cria uma questao sem ser atribuida a um jogo;" << endl
-	<< "\\create <timer>																	Cria um jogo (o timer nao funciona);" << endl
-	<< "\\insert <game_id> <question_id>													Associa uma questao a um jogo;" << endl
-	<< "\\listusers																			Lista todos os users registados;" << endl
-	<< "\\exit																				Desliga-se do servidor;" << endl;
+	<< "\\help" << endl
+	<< "	Lista os comandos todos disponiveis;" << endl
+	<< "\\register <name> <password>" << endl
+	<< "	Regista um user com name e password;" << endl
+	<< "\\login <name> <password>" << endl
+	<< "	Login do user com a sua password;" << endl
+	<< "\\logout" << endl
+	<< "	Faz logout da sessão actual;" << endl
+	<< "\\question <question> <right_answer> <wrong_answer> <wrong_answer> <wrong_answer>"<< endl
+	<< "	Cria uma questao sem ser atribuida a um jogo;" << endl
+	<< "\\create <timer>" << endl
+	<< "	Cria um jogo (o timer nao funciona);" << endl
+	<< "\\insert <game_id> <question_id>" << endl
+	<< "	Associa uma questao a um jogo;" << endl
+	<< "\\start <game_id>" << endl
+	<< "	Comeca o jogo com o ID indicado;" << endl
+	<< "\\ranking" << endl
+	<< "	Lista todos os utilizadores por ranking;" << endl
+	<< "\\listusers" << endl
+	<< "	Lista todos os users registados;" << endl
+	<< "\\exit" << endl
+	<< "	Desliga-se do servidor;" << endl;
 
 	data = oss.str();
 	writeline (socketfd, data);
@@ -224,7 +240,7 @@ void cmd_login (userAcc *currentUser, int socketfd, string &line)
 		return ;
 	}
 
-	PGresult* res = executeSQL ("SELECT * FROM players WHERE name = '" + user + "' AND password = '" + pass + "' AND online = FALSE");
+	PGresult* res = executeSQL ("SELECT * FROM players WHERE name = '" + user + "' AND password = '" + pass + "' AND status = 'offline'");
 	
 	if (PQntuples (res) == 1) // sucesso 
 	{
@@ -240,9 +256,12 @@ void cmd_login (userAcc *currentUser, int socketfd, string &line)
 		ostringstream
 			oss;
 
-		oss << "UPDATE players SET online = TRUE WHERE id = " << (*currentUser).id;
+		oss << "UPDATE players SET status = 'online' WHERE id = " << (*currentUser).id;
 
 		executeSQL (oss.str());
+
+		userSockets[(*currentUser).name] = socketfd;
+		
 		writeline (socketfd, "Login com sucesso!");
 	}
 	else // insucesso
@@ -262,12 +281,12 @@ void cmd_logout (userAcc *currentUser, int socketfd)
 		return ;
 	}
 
-	oss << "UPDATE players SET online = FALSE WHERE id = " << (*currentUser).id;
+	oss << "UPDATE players SET status = 'offline' WHERE id = " << (*currentUser).id;
 
 	executeSQL (oss.str());
-	writeline (socketfd, "Logout com sucesso!");
 	
-	// empty_curr_user ();
+	empty_curr_user (currentUser);
+	writeline (socketfd, "Logout com sucesso!");
 }
 
 void cmd_question (userAcc *currentUser, int socketfd, string &line)
@@ -392,7 +411,7 @@ void cmd_insert (userAcc *currentUser, int socketfd, string &line)
 	}
 }
 
-void cmd_play (userAcc *currentUser, int socketfd, string &line)
+void cmd_start (userAcc *currentUser, int socketfd, string &line)
 {
 	string
 		comando,
@@ -412,7 +431,10 @@ void cmd_play (userAcc *currentUser, int socketfd, string &line)
 		oss,
 		oss1,
 		oss2,
-		oss3;
+		oss3,
+		ossUpdate1,
+		ossUpdate2,
+		ossUpdate3;
 	int
 		questions,
 		waittime,
@@ -439,6 +461,10 @@ void cmd_play (userAcc *currentUser, int socketfd, string &line)
 
 	oss3 << "Este jogo tem " << questions << " perguntas.";
 	writeline (socketfd, oss3.str ());
+	
+	// meter o jogador a ocupado
+	ossUpdate1 << "UPDATE players SET status = 'busy' WHERE id = " << (*currentUser).id;
+	executeSQL (ossUpdate1.str());
 	
 	for (i = 0; i < questions; i++)
 	{
@@ -503,6 +529,56 @@ void cmd_play (userAcc *currentUser, int socketfd, string &line)
 	if (i == questions)
 	{
 		writeline (socketfd, "Ganhou o jogo!");
+		ossUpdate2 << "UPDATE players SET gameswon = gameswon + 1 WHERE id = " << (*currentUser).id;
+		executeSQL (ossUpdate2.str());
+	}
+	
+	// tira o jogador do ocupado
+	ossUpdate3 << "UPDATE players SET status = 'online' WHERE id = " << (*currentUser).id;
+	executeSQL (ossUpdate3.str());
+}
+
+void cmd_msg (userAcc *currentUser, int socketfd, string &line)
+{
+	if ((*currentUser).id == 0)
+	{
+		writeline (socketfd, "Não existe uma sessão iniciada. Faça \\login");
+		return ;
+	}
+	
+	istringstream
+		iss (line);
+	string
+		comand,
+		receiverName,
+		text;
+	ostringstream
+		message,
+		output;
+	
+	iss >> comand >> receiverName >> text;
+	
+	message << "Nova mensagem!" << endl << "De: " << (*currentUser).name << endl << "Mensagem: " << text;
+	
+	PGresult*
+		res;
+	
+	res = executeSQL ("SELECT id FROM players WHERE name = '" + receiverName + "' AND status = 'online'");
+	
+	if (PQntuples (res) == 1)
+	{	
+		writeline (userSockets[receiverName], message.str ());
+
+		output << "INSERT INTO messages (sender_id, receiver_id, msgtext, checked) VALUES (" << (*currentUser).id << ", " << PQgetvalue (res, 0, 0) << ", '" << text << "', TRUE)";
+		
+		executeSQL (output.str ());
+	}
+	else
+	{
+		res = executeSQL ("SELECT id FROM players WHERE name = '" + receiverName + "'");
+		output << "INSERT INTO messages (sender_id, receiver_id, msgtext, checked) VALUES (" << (*currentUser).id << ", " << PQgetvalue (res, 0, 0) << ", '" << text << "', FALSE)";
+		
+		executeSQL (output.str ());
 	}
 }
 
@@ -516,7 +592,24 @@ void cmd_listusers (int socketfd)
 	PGresult* res = executeSQL ("SELECT * FROM players");
 	for (int i = 0; i < PQntuples (res); i++)
 	{
-		oss << "ID: " << PQgetvalue (res, i, 0) << endl << "Nome: " << PQgetvalue (res, i, 1) << endl;
+		oss << "ID: " << PQgetvalue (res, i, 0) << " | Nome: " << PQgetvalue (res, i, 1) << endl;
+	}
+
+	data = oss.str();
+	writeline (socketfd, data);
+}
+
+void cmd_ranking (int socketfd)
+{
+	ostringstream
+		oss;
+	string
+		data;
+	
+	PGresult* res = executeSQL ("SELECT name, gameswon FROM players ORDER BY gameswon DESC");
+	for (int i = 0; i < PQntuples (res); i++)
+	{
+		oss << "#" << i + 1 << " | Nome: " << PQgetvalue (res, i, 0) << " (" << PQgetvalue (res, i, 1) << ")" << endl;
 	}
 
 	data = oss.str();
@@ -524,6 +617,22 @@ void cmd_listusers (int socketfd)
 }
 
 /* FUNÇOES DO JOGO */
+
+void verify_msg (userAcc *currentUser, int socketfd)
+{
+	ostringstream
+		oss,
+		oss1;
+
+	oss << "SELECT * FROM messages WHERE receiver_id = " << (*currentUser).id << "AND checked = FALSE";
+	PGresult* res = executeSQL (oss.str ());
+	
+	if (PQntuples (res) > 0)
+	{
+		oss1 << "Tem " << PQntuples (res) << " mensagens novas. Consulte \\inbox";
+		writeline (socketfd, oss1.str ());
+	}
+}
 
 /* Trata de receber dados de um cliente cujo socketid foi passado como parâmetro */
 void* cliente (void* args)
@@ -536,17 +645,19 @@ void* cliente (void* args)
 		*currentUser = new userAcc();
 	
 	// empty_curr_user (currentUser);
-	print_curr_user (currentUser);
+	// print_curr_user (currentUser);
 	
 	cout << "Connecting client: " << socketfd << endl;
 
-	clients.insert (socketfd);
+	pthread_mutex_lock(&mutex);
+		clients.insert (socketfd);		
+	pthread_mutex_unlock(&mutex);
 
 	cout << "Client connected: " << socketfd << endl;
 
 	writeline (socketfd, (*currentUser).name + "> ");
 	while (readline (socketfd, line))
-	{		
+	{
 		if (line.find ("\\help") == 0)
 			cmd_help (socketfd);
 		else if (line.find ("\\register") == 0)
@@ -561,15 +672,22 @@ void* cliente (void* args)
 			cmd_create (currentUser, socketfd, line);
 		else if (line.find ("\\insert") == 0)
 			cmd_insert (currentUser, socketfd, line);
-		else if (line.find ("\\play") == 0)
-			cmd_play (currentUser, socketfd, line);
+		else if (line.find ("\\start") == 0)
+			cmd_start (currentUser, socketfd, line);
+		else if (line.find ("\\msg") == 0)
+			cmd_msg (currentUser, socketfd, line);
+		else if (line.find ("\\listusers") == 0)
+			cmd_listusers (socketfd);
+		else if (line.find ("\\ranking") == 0)
+			cmd_ranking (socketfd);
 		else if (line.find ("\\exit") == 0)
 		{
 			cmd_logout (currentUser, socketfd);
 			break;
 		}
-		else if (line.find ("\\listusers") == 0)
-			cmd_listusers (socketfd);
+
+		if ((*currentUser).id != 0)
+			verify_msg (currentUser, socketfd);
 
 		writeline (socketfd, (*currentUser).name + "> ");
 	}
@@ -599,6 +717,7 @@ int main (int argc, char *argv[])
 	cout << "Port: " << port << endl;
 
 	initDB ();
+	pthread_mutex_init(&mutex, NULL);
 
 	// Inicializar o socket
 	// AF_INET:			para indicar que queremos usar IP
@@ -647,6 +766,7 @@ int main (int argc, char *argv[])
 	}
 
 	closeDB ();
+	pthread_mutex_destroy(&mutex);
 	close (socketfd);
 	return 0; 
 }

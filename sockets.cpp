@@ -582,6 +582,77 @@ void cmd_msg (userAcc *currentUser, int socketfd, string &line)
 	}
 }
 
+void cmd_inbox (userAcc *currentUser, int socketfd)
+{
+	if ((*currentUser).id == 0)
+	{
+		writeline (socketfd, "Não existe uma sessão iniciada. Faça \\login");
+		return ;
+	}
+	
+	ostringstream
+		oss,
+		oss1,
+		oss2;
+	string
+		data;
+	PGresult* res;
+	PGresult* res1;
+	
+	oss1 << "SELECT sender_id, msgtext FROM messages WHERE receiver_id = " << (*currentUser).id;
+	res = executeSQL (oss1.str ());
+
+	for (int i = 0; i < PQntuples (res); i++)
+	{
+		oss1.str ("");
+		oss1.clear ();
+
+		oss1 << "SELECT name FROM players WHERE id = " << PQgetvalue (res, i, 0);
+		res1 = executeSQL (oss1.str ());
+		oss << "De: " << PQgetvalue (res1, 0, 0) << endl << "Mensagem: " << PQgetvalue (res, i, 1) << endl << endl;
+	}
+
+	data = oss.str();
+	writeline (socketfd, data);
+	
+	oss2 << "UPDATE messages SET checked = true WHERE receiver_id = " << (*currentUser).id;
+	executeSQL (oss2.str ());
+}
+
+void cmd_outbox (userAcc *currentUser, int socketfd)
+{
+	if ((*currentUser).id == 0)
+	{
+		writeline (socketfd, "Não existe uma sessão iniciada. Faça \\login");
+		return ;
+	}
+	
+	ostringstream
+		oss,
+		oss1,
+		oss2;
+	string
+		data;
+	PGresult* res;
+	PGresult* res1;
+	
+	oss1 << "SELECT receiver_id, msgtext FROM messages WHERE sender_id = " << (*currentUser).id;
+	res = executeSQL (oss1.str ());
+
+	for (int i = 0; i < PQntuples (res); i++)
+	{
+		oss1.str ("");
+		oss1.clear ();
+		
+		oss1 << "SELECT name FROM players WHERE id = " << PQgetvalue (res, i, 0);
+		res1 = executeSQL (oss1.str ());
+		oss << "Para: " << PQgetvalue (res1, 0, 0) << endl << "Mensagem: " << PQgetvalue (res, i, 1) << endl << endl;
+	}
+
+	data = oss.str();
+	writeline (socketfd, data);
+}
+
 void cmd_listusers (int socketfd)
 {
 	ostringstream
@@ -676,6 +747,10 @@ void* cliente (void* args)
 			cmd_start (currentUser, socketfd, line);
 		else if (line.find ("\\msg") == 0)
 			cmd_msg (currentUser, socketfd, line);
+		else if (line.find ("\\inbox") == 0)
+			cmd_inbox (currentUser, socketfd);
+		else if (line.find ("\\outbox") == 0)
+			cmd_outbox (currentUser, socketfd);
 		else if (line.find ("\\listusers") == 0)
 			cmd_listusers (socketfd);
 		else if (line.find ("\\ranking") == 0)

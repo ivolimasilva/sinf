@@ -226,7 +226,7 @@ void cmd_register (int socketfd, string &line)
 		}
 		else // caso não exista este username
 		{
-			executeSQL ("INSERT INTO players (name, password, admin, online, gameswon) VALUES ('" + user + "', '" + pass + "', FALSE, 'offline', 0)"); //não é admin nem está online
+			executeSQL ("INSERT INTO players (name, password, admin, status, gameswon) VALUES ('" + user + "', '" + pass + "', FALSE, 'offline', 0)"); //não é admin nem está online
 		}
 	}
 }
@@ -696,7 +696,7 @@ void cmd_listusers (int socketfd)
 	string
 		data;
 	
-	PGresult* res = executeSQL ("SELECT * FROM players");
+	PGresult* res = executeSQL ("SELECT * FROM players ORDER BY id");
 	for (int i = 0; i < PQntuples (res); i++)
 	{
 		oss << "ID: " << PQgetvalue (res, i, 0) << " | Nome: " << PQgetvalue (res, i, 1) << endl;
